@@ -6,7 +6,7 @@ import plotly.express as px
 import numpy as np
 from datetime import datetime, timedelta
 
-# Funciones auxiliares actualizadas
+# Funciones auxiliares
 def obtener_datos_acciones(simbolos, start_date, end_date):
     data = yf.download(simbolos, start=start_date, end=end_date)['Close']
     return data.ffill().dropna()  # Forward fill y eliminar días sin datos para todos los activos
@@ -51,6 +51,16 @@ pesos_input = st.sidebar.text_input("Ingrese los pesos correspondientes separado
 simbolos = [s.strip() for s in simbolos_input.split(',')]
 pesos = [float(w.strip()) for w in pesos_input.split(',')]
 
+# Selección del benchmark
+benchmark_options = {
+    "S&P 500": "^GSPC",
+    "Nasdaq": "^IXIC",
+    "Dow Jones": "^DJI",
+    "Russell 2000": "^RUT"
+}
+selected_benchmark = st.sidebar.selectbox("Seleccione el benchmark:", list(benchmark_options.keys()))
+benchmark = benchmark_options[selected_benchmark]
+
 # Selección de la ventana de tiempo
 end_date = datetime.now()
 start_date_options = {
@@ -69,7 +79,6 @@ if len(simbolos) != len(pesos) or abs(sum(pesos) - 1) > 1e-6:
     st.sidebar.error("El número de símbolos debe coincidir con el número de pesos, y los pesos deben sumar 1.")
 else:
     # Obtener datos
-    benchmark = 'SPY'  # Cambiamos a SPY como benchmark
     all_symbols = simbolos + [benchmark]
     df_stocks = obtener_datos_acciones(all_symbols, start_date, end_date)
     returns, cumulative_returns, normalized_prices = calcular_metricas(df_stocks)
@@ -91,13 +100,16 @@ else:
         col2.metric("Sharpe Ratio", f"{calcular_sharpe_ratio(returns[selected_asset]):.2f}")
         col3.metric("Sortino Ratio", f"{calcular_sortino_ratio(returns[selected_asset]):.2f}")
         
-        # Gráfico de precio normalizado del activo seleccionado
-        fig_asset = px.line(normalized_prices[selected_asset], title=f'Precio Normalizado de {selected_asset} (Base 100)')
+        # Gráfico de precio normalizado del activo seleccionado vs benchmark
+        fig_asset = go.Figure()
+        fig_asset.add_trace(go.Scatter(x=normalized_prices.index, y=normalized_prices[selected_asset], name=selected_asset))
+        fig_asset.add_trace(go.Scatter(x=normalized_prices.index, y=normalized_prices[benchmark], name=selected_benchmark))
+        fig_asset.update_layout(title=f'Precio Normalizado: {selected_asset} vs {selected_benchmark} (Base 100)', xaxis_title='Fecha', yaxis_title='Precio Normalizado')
         st.plotly_chart(fig_asset)
         
         # Beta del activo vs benchmark
         beta_asset = calcular_beta(returns[selected_asset], returns[benchmark])
-        st.metric("Beta vs SPY", f"{beta_asset:.2f}")
+        st.metric(f"Beta vs {selected_benchmark}", f"{beta_asset:.2f}")
 
     with tab2:
         st.header("Análisis del Portafolio")
@@ -110,18 +122,18 @@ else:
         # Gráfico de rendimientos acumulados del portafolio vs benchmark
         fig_cumulative = go.Figure()
         fig_cumulative.add_trace(go.Scatter(x=portfolio_cumulative_returns.index, y=portfolio_cumulative_returns, name='Portafolio'))
-        fig_cumulative.add_trace(go.Scatter(x=cumulative_returns.index, y=cumulative_returns[benchmark], name='SPY'))
-        fig_cumulative.update_layout(title='Rendimientos Acumulados: Portafolio vs SPY', xaxis_title='Fecha', yaxis_title='Rendimiento Acumulado')
+        fig_cumulative.add_trace(go.Scatter(x=cumulative_returns.index, y=cumulative_returns[benchmark], name=selected_benchmark))
+        fig_cumulative.update_layout(title=f'Rendimientos Acumulados: Portafolio vs {selected_benchmark}', xaxis_title='Fecha', yaxis_title='Rendimiento Acumulado')
         st.plotly_chart(fig_cumulative)
 
         # Beta del portafolio vs benchmark
         beta_portfolio = calcular_beta(portfolio_returns, returns[benchmark])
-        st.metric("Beta del Portafolio vs SPY", f"{beta_portfolio:.2f}")
+        st.metric(f"Beta del Portafolio vs {selected_benchmark}", f"{beta_portfolio:.2f}")
 
         # Rendimientos en diferentes ventanas de tiempo
         st.subheader("Rendimientos en Diferentes Ventanas de Tiempo")
         ventanas = [1, 7, 30, 90, 180, 252]
-        rendimientos_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [benchmark])
+        rendimientos_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [selected_benchmark])
         
         for ventana in ventanas:
             rendimientos_ventanas[f'{ventana}d'] = pd.Series({
@@ -129,6 +141,7 @@ else:
                 **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana) for symbol in simbolos + [benchmark]}
             })
         
+        rendimientos_ventanas = rendimientos_ventanas.rename(index={benchmark: selected_benchmark})
         st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
 
         # Gráfico de comparación de rendimientos
