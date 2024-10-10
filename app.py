@@ -6,10 +6,10 @@ import plotly.express as px
 import numpy as np
 from datetime import datetime, timedelta
 
-# Funciones auxiliares
+# Funciones auxiliares actualizadas
 def obtener_datos_acciones(simbolos, start_date, end_date):
     data = yf.download(simbolos, start=start_date, end=end_date)['Close']
-    return data
+    return data.ffill()  # Forward fill para manejar días sin cotización
 
 def calcular_metricas(df):
     returns = df.pct_change()
@@ -21,7 +21,7 @@ def calcular_rendimientos_portafolio(returns, weights):
     return (returns * weights).sum(axis=1)
 
 def calcular_rendimiento_ventana(returns, window):
-    return (1 + returns).rolling(window=window).apply(np.prod) - 1
+    return (returns.iloc[-window:].pct_change() + 1).prod() - 1
 
 def calcular_beta(portfolio_returns, index_returns):
     cov = np.cov(portfolio_returns, index_returns)[0, 1]
@@ -122,22 +122,17 @@ else:
         rendimientos_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [benchmark])
         
         for ventana in ventanas:
-            if len(returns) >= ventana:
-                rendimientos_ventanas[f'{ventana}d'] = pd.Series({
-                    'Portafolio': calcular_rendimiento_ventana(portfolio_returns, ventana).iloc[-1],
-                    **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana).iloc[-1] for symbol in simbolos + [benchmark]}
-                })
-            else:
-                rendimientos_ventanas[f'{ventana}d'] = pd.Series('N/A', index=rendimientos_ventanas.index)
+            rendimientos_ventanas[f'{ventana}d'] = pd.Series({
+                'Portafolio': calcular_rendimiento_ventana(portfolio_returns, min(ventana, len(portfolio_returns))),
+                **{symbol: calcular_rendimiento_ventana(returns[symbol], min(ventana, len(returns[symbol]))) for symbol in simbolos + [benchmark]}
+            })
         
         st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
 
         # Gráfico de comparación de rendimientos
         fig_comparison = go.Figure()
         for index, row in rendimientos_ventanas.iterrows():
-            fig_comparison.add_trace(go.Bar(x=[col for col in ventanas if col in rendimientos_ventanas.columns], 
-                                            y=[row[f'{v}d'] for v in ventanas if f'{v}d' in rendimientos_ventanas.columns], 
-                                            name=index))
+            fig_comparison.add_trace(go.Bar(x=ventanas, y=row, name=index))
         fig_comparison.update_layout(title='Comparación de Rendimientos', xaxis_title='Días', yaxis_title='Rendimiento', barmode='group')
         st.plotly_chart(fig_comparison)
 
