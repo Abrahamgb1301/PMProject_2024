@@ -4,10 +4,11 @@ import pandas as pd
 import plotly.graph_objects as go
 import plotly.express as px
 import numpy as np
+from datetime import datetime, timedelta
 
 # Funciones auxiliares
-def obtener_datos_acciones(simbolos, periodo='5y'):
-    data = yf.download(simbolos, period=periodo)['Close']
+def obtener_datos_acciones(simbolos, start_date, end_date):
+    data = yf.download(simbolos, start=start_date, end=end_date)['Close']
     return data
 
 def calcular_metricas(df):
@@ -48,13 +49,27 @@ pesos_input = st.text_input("Ingrese los pesos correspondientes separados por co
 simbolos = [s.strip() for s in simbolos_input.split(',')]
 pesos = [float(w.strip()) for w in pesos_input.split(',')]
 
+# Selección de la ventana de tiempo
+end_date = datetime.now()
+start_date_options = {
+    "1 mes": end_date - timedelta(days=30),
+    "3 meses": end_date - timedelta(days=90),
+    "6 meses": end_date - timedelta(days=180),
+    "1 año": end_date - timedelta(days=365),
+    "3 años": end_date - timedelta(days=3*365),
+    "5 años": end_date - timedelta(days=5*365),
+    "10 años": end_date - timedelta(days=10*365)
+}
+selected_window = st.selectbox("Seleccione la ventana de tiempo para el análisis:", list(start_date_options.keys()))
+start_date = start_date_options[selected_window]
+
 if len(simbolos) != len(pesos) or abs(sum(pesos) - 1) > 1e-6:
     st.error("El número de símbolos debe coincidir con el número de pesos, y los pesos deben sumar 1.")
 else:
     # Obtener datos
     benchmark = 'SPY'  # Cambiamos a SPY como benchmark
     all_symbols = simbolos + [benchmark]
-    df_stocks = obtener_datos_acciones(all_symbols)
+    df_stocks = obtener_datos_acciones(all_symbols, start_date, end_date)
     returns, cumulative_returns, normalized_prices = calcular_metricas(df_stocks)
     
     # Rendimientos del portafolio
@@ -101,14 +116,13 @@ else:
     # Rendimientos en diferentes ventanas de tiempo
     st.subheader("Rendimientos en Diferentes Ventanas de Tiempo")
     ventanas = [1, 7, 30, 90, 180, 252]
-    rendimientos_ventanas = pd.DataFrame()
-    for ventana in ventanas:
-        rendimientos_ventanas[f'{ventana}d'] = calcular_rendimiento_ventana(portfolio_returns, ventana)
-    rendimientos_ventanas.index = ['Portafolio']
+    rendimientos_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [benchmark])
     
-    for symbol in simbolos + [benchmark]:
-        symbol_returns = calcular_rendimiento_ventana(returns[symbol], ventanas[-1])
-        rendimientos_ventanas.loc[symbol] = symbol_returns.iloc[-1]
+    for ventana in ventanas:
+        rendimientos_ventanas[f'{ventana}d'] = pd.Series({
+            'Portafolio': calcular_rendimiento_ventana(portfolio_returns, ventana).iloc[-1],
+            **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana).iloc[-1] for symbol in simbolos + [benchmark]}
+        })
     
     st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
 
