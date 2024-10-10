@@ -40,11 +40,11 @@ def calcular_sortino_ratio(returns, risk_free_rate=0.02, target_return=0):
 
 # Configuración de la página
 st.set_page_config(page_title="Analizador de Portafolio", layout="wide")
-st.title("Analizador de Portafolio de Inversión")
+st.sidebar.title("Analizador de Portafolio de Inversión")
 
 # Entrada de símbolos y pesos
-simbolos_input = st.text_input("Ingrese los símbolos de las acciones separados por comas (por ejemplo: AAPL,GOOGL,MSFT):", "AAPL,GOOGL,MSFT,AMZN,FB")
-pesos_input = st.text_input("Ingrese los pesos correspondientes separados por comas (deben sumar 1):", "0.2,0.2,0.2,0.2,0.2")
+simbolos_input = st.sidebar.text_input("Ingrese los símbolos de las acciones separados por comas (por ejemplo: AAPL,GOOGL,MSFT):", "AAPL,GOOGL,MSFT,AMZN,NVDA")
+pesos_input = st.sidebar.text_input("Ingrese los pesos correspondientes separados por comas (deben sumar 1):", "0.2,0.2,0.2,0.2,0.2")
 
 simbolos = [s.strip() for s in simbolos_input.split(',')]
 pesos = [float(w.strip()) for w in pesos_input.split(',')]
@@ -60,11 +60,11 @@ start_date_options = {
     "5 años": end_date - timedelta(days=5*365),
     "10 años": end_date - timedelta(days=10*365)
 }
-selected_window = st.selectbox("Seleccione la ventana de tiempo para el análisis:", list(start_date_options.keys()))
+selected_window = st.sidebar.selectbox("Seleccione la ventana de tiempo para el análisis:", list(start_date_options.keys()))
 start_date = start_date_options[selected_window]
 
 if len(simbolos) != len(pesos) or abs(sum(pesos) - 1) > 1e-6:
-    st.error("El número de símbolos debe coincidir con el número de pesos, y los pesos deben sumar 1.")
+    st.sidebar.error("El número de símbolos debe coincidir con el número de pesos, y los pesos deben sumar 1.")
 else:
     # Obtener datos
     benchmark = 'SPY'  # Cambiamos a SPY como benchmark
@@ -76,62 +76,69 @@ else:
     portfolio_returns = calcular_rendimientos_portafolio(returns[simbolos], pesos)
     portfolio_cumulative_returns = (1 + portfolio_returns).cumprod() - 1
 
-    # Sección 1: Análisis de Activos Individuales
-    st.header("Análisis de Activos Individuales")
-    
-    selected_asset = st.selectbox("Seleccione un activo para analizar:", simbolos)
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Rendimiento Total", f"{cumulative_returns[selected_asset].iloc[-1]:.2%}")
-    col2.metric("Sharpe Ratio", f"{calcular_sharpe_ratio(returns[selected_asset]):.2f}")
-    col3.metric("Sortino Ratio", f"{calcular_sortino_ratio(returns[selected_asset]):.2f}")
-    
-    # Gráfico de precio normalizado del activo seleccionado
-    fig_asset = px.line(normalized_prices[selected_asset], title=f'Precio Normalizado de {selected_asset} (Base 100)')
-    st.plotly_chart(fig_asset)
-    
-    # Beta del activo vs benchmark
-    beta_asset = calcular_beta(returns[selected_asset], returns[benchmark])
-    st.metric("Beta vs SPY", f"{beta_asset:.2f}")
+    # Crear pestañas
+    tab1, tab2 = st.tabs(["Análisis de Activos Individuales", "Análisis del Portafolio"])
 
-    # Sección 2: Análisis del Portafolio
-    st.header("Análisis del Portafolio")
-    
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Rendimiento Total del Portafolio", f"{portfolio_cumulative_returns.iloc[-1]:.2%}")
-    col2.metric("Sharpe Ratio del Portafolio", f"{calcular_sharpe_ratio(portfolio_returns):.2f}")
-    col3.metric("Sortino Ratio del Portafolio", f"{calcular_sortino_ratio(portfolio_returns):.2f}")
+    with tab1:
+        st.header("Análisis de Activos Individuales")
+        
+        selected_asset = st.selectbox("Seleccione un activo para analizar:", simbolos)
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Rendimiento Total", f"{cumulative_returns[selected_asset].iloc[-1]:.2%}")
+        col2.metric("Sharpe Ratio", f"{calcular_sharpe_ratio(returns[selected_asset]):.2f}")
+        col3.metric("Sortino Ratio", f"{calcular_sortino_ratio(returns[selected_asset]):.2f}")
+        
+        # Gráfico de precio normalizado del activo seleccionado
+        fig_asset = px.line(normalized_prices[selected_asset], title=f'Precio Normalizado de {selected_asset} (Base 100)')
+        st.plotly_chart(fig_asset)
+        
+        # Beta del activo vs benchmark
+        beta_asset = calcular_beta(returns[selected_asset], returns[benchmark])
+        st.metric("Beta vs SPY", f"{beta_asset:.2f}")
 
-    # Gráfico de rendimientos acumulados del portafolio vs benchmark
-    fig_cumulative = go.Figure()
-    fig_cumulative.add_trace(go.Scatter(x=portfolio_cumulative_returns.index, y=portfolio_cumulative_returns, name='Portafolio'))
-    fig_cumulative.add_trace(go.Scatter(x=cumulative_returns.index, y=cumulative_returns[benchmark], name='SPY'))
-    fig_cumulative.update_layout(title='Rendimientos Acumulados: Portafolio vs SPY', xaxis_title='Fecha', yaxis_title='Rendimiento Acumulado')
-    st.plotly_chart(fig_cumulative)
+    with tab2:
+        st.header("Análisis del Portafolio")
+        
+        col1, col2, col3 = st.columns(3)
+        col1.metric("Rendimiento Total del Portafolio", f"{portfolio_cumulative_returns.iloc[-1]:.2%}")
+        col2.metric("Sharpe Ratio del Portafolio", f"{calcular_sharpe_ratio(portfolio_returns):.2f}")
+        col3.metric("Sortino Ratio del Portafolio", f"{calcular_sortino_ratio(portfolio_returns):.2f}")
 
-    # Beta del portafolio vs benchmark
-    beta_portfolio = calcular_beta(portfolio_returns, returns[benchmark])
-    st.metric("Beta del Portafolio vs SPY", f"{beta_portfolio:.2f}")
+        # Gráfico de rendimientos acumulados del portafolio vs benchmark
+        fig_cumulative = go.Figure()
+        fig_cumulative.add_trace(go.Scatter(x=portfolio_cumulative_returns.index, y=portfolio_cumulative_returns, name='Portafolio'))
+        fig_cumulative.add_trace(go.Scatter(x=cumulative_returns.index, y=cumulative_returns[benchmark], name='SPY'))
+        fig_cumulative.update_layout(title='Rendimientos Acumulados: Portafolio vs SPY', xaxis_title='Fecha', yaxis_title='Rendimiento Acumulado')
+        st.plotly_chart(fig_cumulative)
 
-    # Rendimientos en diferentes ventanas de tiempo
-    st.subheader("Rendimientos en Diferentes Ventanas de Tiempo")
-    ventanas = [1, 7, 30, 90, 180, 252]
-    rendimientos_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [benchmark])
-    
-    for ventana in ventanas:
-        rendimientos_ventanas[f'{ventana}d'] = pd.Series({
-            'Portafolio': calcular_rendimiento_ventana(portfolio_returns, ventana).iloc[-1],
-            **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana).iloc[-1] for symbol in simbolos + [benchmark]}
-        })
-    
-    st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
+        # Beta del portafolio vs benchmark
+        beta_portfolio = calcular_beta(portfolio_returns, returns[benchmark])
+        st.metric("Beta del Portafolio vs SPY", f"{beta_portfolio:.2f}")
 
-    # Gráfico de comparación de rendimientos
-    fig_comparison = go.Figure()
-    for index, row in rendimientos_ventanas.iterrows():
-        fig_comparison.add_trace(go.Bar(x=ventanas, y=row, name=index))
-    fig_comparison.update_layout(title='Comparación de Rendimientos', xaxis_title='Días', yaxis_title='Rendimiento', barmode='group')
-    st.plotly_chart(fig_comparison)
+        # Rendimientos en diferentes ventanas de tiempo
+        st.subheader("Rendimientos en Diferentes Ventanas de Tiempo")
+        ventanas = [1, 7, 30, 90, 180, 252]
+        rendimientos_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [benchmark])
+        
+        for ventana in ventanas:
+            if len(returns) >= ventana:
+                rendimientos_ventanas[f'{ventana}d'] = pd.Series({
+                    'Portafolio': calcular_rendimiento_ventana(portfolio_returns, ventana).iloc[-1],
+                    **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana).iloc[-1] for symbol in simbolos + [benchmark]}
+                })
+            else:
+                rendimientos_ventanas[f'{ventana}d'] = pd.Series('N/A', index=rendimientos_ventanas.index)
+        
+        st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
 
+        # Gráfico de comparación de rendimientos
+        fig_comparison = go.Figure()
+        for index, row in rendimientos_ventanas.iterrows():
+            fig_comparison.add_trace(go.Bar(x=[col for col in ventanas if col in rendimientos_ventanas.columns], 
+                                            y=[row[f'{v}d'] for v in ventanas if f'{v}d' in rendimientos_ventanas.columns], 
+                                            name=index))
+        fig_comparison.update_layout(title='Comparación de Rendimientos', xaxis_title='Días', yaxis_title='Rendimiento', barmode='group')
+        st.plotly_chart(fig_comparison)
 
 
