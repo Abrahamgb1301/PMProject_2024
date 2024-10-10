@@ -1,186 +1,117 @@
-
 import streamlit as st
 import yfinance as yf
 import pandas as pd
-import plotly as plt
 import plotly.graph_objects as go
-import exchange_calendars as xcals
-from datetime import date
+import plotly.express as px
+import numpy as np
 
-def download_data(tickers, start_date='2001-01-01', end_date=date.today().strftime('%Y-%m-%d')):
-    data = yf.download(tickers, start=start_date, end=end_date)
+# Funciones auxiliares
+def obtener_datos_acciones(simbolos, periodo='5y'):
+    data = yf.download(simbolos, period=periodo)['Close']
+    return data
 
-    return data['Close']
+def calcular_metricas(df):
+    returns = df.pct_change()
+    cumulative_returns = (1 + returns).cumprod() - 1
+    normalized_prices = df / df.iloc[0] * 100
+    return returns, cumulative_returns, normalized_prices
 
-def calcular_fechas(hoy: pd.Timestamp):
-    # Obtén el calendario de la bolsa de México
-    xmex = xcals.get_calendar("XMEX")
+def calcular_rendimientos_portafolio(returns, weights):
+    return (returns * weights).sum(axis=1)
 
-    # Si el día de la semana es lunes (0 en el sistema Python weekday()), retrocede 3 días
-    if hoy.weekday() == 0:
-        prev_business_day = hoy - pd.Timedelta(days=3)
-    # De lo contrario, solo retrocede un día
-    else:
-        prev_business_day = hoy - pd.Timedelta(days=1)
+def calcular_rendimiento_ventana(returns, window):
+    return (1 + returns).rolling(window=window).apply(np.prod) - 1
 
-    # Si el día calculado no es un día hábil, busca el día hábil más reciente
-    if not xmex.is_session(prev_business_day):
-        prev_business_day = xmex.previous_close(prev_business_day).to_pydatetime()
+def calcular_beta(portfolio_returns, index_returns):
+    cov = np.cov(portfolio_returns, index_returns)[0, 1]
+    var = np.var(index_returns)
+    return cov / var
 
-    ayer = prev_business_day
+def calcular_sharpe_ratio(returns, risk_free_rate=0.02):
+    excess_returns = returns - risk_free_rate / 252
+    return np.sqrt(252) * excess_returns.mean() / excess_returns.std()
 
-    # Crear un diccionario para almacenar los resultados
-    resultado = {}
+def calcular_sortino_ratio(returns, risk_free_rate=0.02, target_return=0):
+    excess_returns = returns - risk_free_rate / 252
+    downside_returns = excess_returns[excess_returns < target_return]
+    downside_deviation = np.sqrt(np.mean(downside_returns**2))
+    return np.sqrt(252) * excess_returns.mean() / downside_deviation
 
-    # Mes hasta la fecha
-    primer_dia_mes = xmex.date_to_session(hoy.replace(day=1), direction="next")
-    if hoy == primer_dia_mes:
-        # Si hoy es el primer día hábil del mes, toma el primer día hábil del mes anterior
-        mes_anterior = hoy - pd.DateOffset(months=1)
-        primer_dia_mes = xmex.date_to_session(mes_anterior.replace(day=1), direction="next")
+# Configuración de la página
+st.set_page_config(page_title="Analizador de Portafolio", layout="wide")
+st.title("Analizador de Portafolio de Inversión")
 
-    # Calcula los días hábiles entre el primer día del mes y hoy
-    dias_habiles = len(xmex.sessions_in_range(primer_dia_mes, hoy))+1
+# Entrada de símbolos y pesos
+simbolos_input = st.text_input("Ingrese los símbolos de las acciones separados por comas (por ejemplo: AAPL,GOOGL,MSFT):", "AAPL,GOOGL,MSFT,AMZN,FB")
+pesos_input = st.text_input("Ingrese los pesos correspondientes separados por comas (deben sumar 1):", "0.2,0.2,0.2,0.2,0.2")
 
-    # Usa estos días hábiles para obtener la ventana de sesiones
-    mes_hasta_fecha = xmex.sessions_window(hoy, -dias_habiles)
+simbolos = [s.strip() for s in simbolos_input.split(',')]
+pesos = [float(w.strip()) for w in pesos_input.split(',')]
 
-    # Año hasta la fecha
-    primer_dia_año = xmex.date_to_session(hoy.replace(month=1, day=1), direction="next")
-    if hoy == primer_dia_año:
-        # Si hoy es el primer día hábil del año, toma el primer día hábil del año anterior
-        año_anterior = hoy - pd.DateOffset(years=1)
-        primer_dia_año = xmex.date_to_session(año_anterior.replace(month=1, day=1), direction="next")
+if len(simbolos) != len(pesos) or abs(sum(pesos) - 1) > 1e-6:
+    st.error("El número de símbolos debe coincidir con el número de pesos, y los pesos deben sumar 1.")
+else:
+    # Obtener datos
+    df_stocks = obtener_datos_acciones(simbolos)
+    returns, cumulative_returns, normalized_prices = calcular_metricas(df_stocks)
+    
+    # Rendimientos del portafolio
+    portfolio_returns = calcular_rendimientos_portafolio(returns, pesos)
+    portfolio_cumulative_returns = (1 + portfolio_returns).cumprod() - 1
 
-    # Calcula los días hábiles entre el primer día del año y hoy
-    dias_habiles = len(xmex.sessions_in_range(primer_dia_año, hoy))+1
+    # Gráfico de precios normalizados
+    fig_normalized = px.line(normalized_prices, title='Precios Normalizados (Base 100)')
+    fig_normalized.add_scatter(x=normalized_prices.index, y=(1 + portfolio_cumulative_returns) * 100, name='Portafolio')
+    st.plotly_chart(fig_normalized)
 
-    # Usa estos días hábiles para obtener la ventana de sesiones
-    año_hasta_fecha = xmex.sessions_window(hoy, -dias_habiles)
+    # Gráfico de rendimientos acumulados
+    fig_cumulative = px.line(cumulative_returns, title='Rendimientos Acumulados')
+    fig_cumulative.add_scatter(x=cumulative_returns.index, y=portfolio_cumulative_returns, name='Portafolio')
+    st.plotly_chart(fig_cumulative)
 
-    # Fecha de hace un mes
-    hace_un_mes = hoy - pd.DateOffset(months=1)
+    # Métricas del portafolio
+    st.subheader("Métricas del Portafolio")
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Rendimiento Total", f"{portfolio_cumulative_returns.iloc[-1]:.2%}")
+    col2.metric("Sharpe Ratio", f"{calcular_sharpe_ratio(portfolio_returns):.2f}")
+    col3.metric("Sortino Ratio", f"{calcular_sortino_ratio(portfolio_returns):.2f}")
 
-    # Encuentra el día hábil más cercano en el pasado a hace_un_mes
-    dia_habil_hace_un_mes = xmex.date_to_session(hace_un_mes, direction="previous")
+    # Comparación con S&P 500
+    sp500 = obtener_datos_acciones(['^GSPC'])
+    sp500_returns = sp500.pct_change()
+    
+    # Beta vs S&P 500
+    betas = {}
+    for symbol in simbolos:
+        betas[symbol] = calcular_beta(returns[symbol], sp500_returns['^GSPC'])
+    betas['Portafolio'] = calcular_beta(portfolio_returns, sp500_returns['^GSPC'])
+    
+    st.subheader("Betas vs S&P 500")
+    st.bar_chart(pd.Series(betas))
 
-    # Obtén todas las sesiones desde hace_un_mes hasta hoy
-    ultimos_30_dias = xmex.sessions_in_range(dia_habil_hace_un_mes, hoy)
+    # Rendimientos en diferentes ventanas de tiempo
+    st.subheader("Rendimientos en Diferentes Ventanas de Tiempo")
+    ventanas = [1, 7, 30, 90, 180, 252]
+    rendimientos_ventanas = pd.DataFrame()
+    for ventana in ventanas:
+        rendimientos_ventanas[f'{ventana}d'] = calcular_rendimiento_ventana(portfolio_returns, ventana)
+    rendimientos_ventanas.index = ['Portafolio']
+    
+    for symbol in simbolos:
+        symbol_returns = calcular_rendimiento_ventana(returns[symbol], ventanas[-1])
+        rendimientos_ventanas.loc[symbol] = symbol_returns.iloc[-1]
+    
+    sp500_returns_windows = calcular_rendimiento_ventana(sp500_returns['^GSPC'], ventanas[-1])
+    rendimientos_ventanas.loc['S&P 500'] = sp500_returns_windows.iloc[-1]
+    
+    st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
 
-    # Fecha de hace tres meses
-    hace_tres_meses = hoy - pd.DateOffset(months=3)
-
-    # Encuentra el día hábil más cercano en el pasado a hace_tres_meses
-    dia_habil_hace_tres_meses = xmex.date_to_session(hace_tres_meses, direction="previous")
-
-    # Obtén todas las sesiones desde hace_tres_meses hasta hoy
-    ultimos_90_dias = xmex.sessions_in_range(dia_habil_hace_tres_meses, hoy)
-
-    # Fecha de hace seis meses
-    hace_seis_meses = hoy - pd.DateOffset(months=6)
-
-    # Encuentra el día hábil más cercano en el pasado a hace_seis_meses
-    dia_habil_hace_seis_meses = xmex.date_to_session(hace_seis_meses, direction="previous")
-
-    # Obtén todas las sesiones desde hace_seis_meses hasta hoy
-    ultimos_180_dias = xmex.sessions_in_range(dia_habil_hace_seis_meses, hoy)
-
-    # Fecha de hace un año
-    hace_un_año = hoy - pd.DateOffset(years=1)
-
-    # Encuentra el día hábil más cercano en el pasado a hace_un_año
-    dia_habil_hace_un_año = xmex.date_to_session(hace_un_año, direction="previous")
-
-    # Obtén todas las sesiones desde hace_un_año hasta hoy
-    ultimos_365_dias = xmex.sessions_in_range(dia_habil_hace_un_año, hoy)
-
-    resultado['mes_hasta_fecha'] = mes_hasta_fecha
-    resultado['año_hasta_fecha'] = año_hasta_fecha
-    resultado['ultimos_30_dias'] = ultimos_30_dias
-    resultado['ultimos_90_dias'] = ultimos_90_dias
-    resultado['ultimos_180_dias'] = ultimos_180_dias
-    resultado['ultimos_365_dias'] = ultimos_365_dias
-
-    return resultado
-
-def anualizar_rendimiento(rendimiento_bruto, dias):
-    rendimiento_anualizado = rendimiento_bruto / dias * 360
-    return rendimiento_anualizado
-
-def calcular_rendimiento_bruto(precio_inicio, precio_fin, dias):
-    # Calcular el cambio porcentual en el precio
-    cambio_pct = (precio_fin / precio_inicio) - 1
-
-    # Calcular el rendimiento bruto
-    rendimiento_bruto = cambio_pct
-    return rendimiento_bruto
-
-def calcular_rendimiento(precios, ventanas_de_tiempo, nombre_benchmark):
-    rendimientos = []
-
-    for periodo, ventana in ventanas_de_tiempo.items():
-        # Obtén los precios de inicio y fin para la ventana de tiempo actual
-        precio_inicio = precios.loc[ventana[0], nombre_benchmark]
-        precio_fin = precios.loc[ventana[-1], nombre_benchmark]
-
-        # Calcula el rendimiento bruto y anualizado
-        rendimiento_bruto = calcular_rendimiento_bruto(precio_inicio, precio_fin, (ventana[-1] - ventana[0]).days)
-        rendimiento_anualizado = anualizar_rendimiento(rendimiento_bruto, (ventana[-1] - ventana[0]).days)
-
-        # Agrega el rendimiento a la lista de rendimientos
-        rendimientos.append({
-            'Periodo': periodo,
-            'Rendimiento_bruto': rendimiento_bruto*100,
-            'Rendimiento_anualizado': rendimiento_anualizado*100
-        })
-
-    # Convierte la lista de rendimientos en un dataframe
-    df_rendimientos = pd.DataFrame(rendimientos)
-
-    return df_rendimientos
-
-tickers = ['GOVT', 'XLV', "GLD", "MCHI", "IVV"]
-
-activos=download_data(tickers)
-activos = activos.dropna()
-
-df_activos = activos.copy()
-
-# Opciones de navegación
-st.sidebar.title("Navegación")
-option = st.sidebar.radio("Seleccione una página", ["Activos", "Portafolios"])
-
-
-if option == "Activos":
-    st.title("Resumen y Estadisticas del activo")
-    activo = st.sidebar.selectbox(
-        "Elige un activo",
-        ('GOVT', 'XLV', "GLD", "MCHI", "IVV")
-    )
-    df_activo = df_activos[activo]
-
-    # Crear la figura
-    fig = go.Figure()
-
-    # Agregar los datos del activo a la figura
-    fig.add_trace(go.Scatter(x=df_activo.index, y=df_activo.values, mode='lines'))
-
-    # Establecer títulos y etiquetas
-    fig.update_layout(title='Precio de cierre historico del activo',
-                    xaxis_title='Fecha',
-                    yaxis_title='Precio de Cierre (en $)')
-
-    st.plotly_chart(fig)
-
-    st.text("Pon la fecha a la que quieres los rendimientos:")
-
-    hoy = st.date_input('Introduce la fecha')
-    hoy = pd.Timestamp(hoy)
-    ventanas_de_tiempo = calcular_fechas(hoy)
-
-    df_rendimientos = calcular_rendimiento(activos, ventanas_de_tiempo, activo)
-
-    st.dataframe(df_rendimientos)
+    # Gráfico de comparación de rendimientos
+    fig_comparison = go.Figure()
+    for index, row in rendimientos_ventanas.iterrows():
+        fig_comparison.add_trace(go.Bar(x=ventanas, y=row, name=index))
+    fig_comparison.update_layout(title='Comparación de Rendimientos', xaxis_title='Días', yaxis_title='Rendimiento', barmode='group')
+    st.plotly_chart(fig_comparison)
 
 
 
