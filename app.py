@@ -9,10 +9,10 @@ from datetime import datetime, timedelta
 # Funciones auxiliares actualizadas
 def obtener_datos_acciones(simbolos, start_date, end_date):
     data = yf.download(simbolos, start=start_date, end=end_date)['Close']
-    return data.ffill()  # Forward fill para manejar días sin cotización
+    return data.ffill().dropna()  # Forward fill y eliminar días sin datos para todos los activos
 
 def calcular_metricas(df):
-    returns = df.pct_change()
+    returns = df.pct_change().dropna()
     cumulative_returns = (1 + returns).cumprod() - 1
     normalized_prices = df / df.iloc[0] * 100
     return returns, cumulative_returns, normalized_prices
@@ -21,12 +21,14 @@ def calcular_rendimientos_portafolio(returns, weights):
     return (returns * weights).sum(axis=1)
 
 def calcular_rendimiento_ventana(returns, window):
-    return (returns.iloc[-window:].pct_change() + 1).prod() - 1
+    if len(returns) < window:
+        return np.nan
+    return (1 + returns.iloc[-window:]).prod() - 1
 
-def calcular_beta(portfolio_returns, index_returns):
-    cov = np.cov(portfolio_returns, index_returns)[0, 1]
-    var = np.var(index_returns)
-    return cov / var
+def calcular_beta(asset_returns, market_returns):
+    covariance = np.cov(asset_returns, market_returns)[0, 1]
+    market_variance = np.var(market_returns)
+    return covariance / market_variance if market_variance != 0 else np.nan
 
 def calcular_sharpe_ratio(returns, risk_free_rate=0.02):
     excess_returns = returns - risk_free_rate / 252
@@ -36,7 +38,7 @@ def calcular_sortino_ratio(returns, risk_free_rate=0.02, target_return=0):
     excess_returns = returns - risk_free_rate / 252
     downside_returns = excess_returns[excess_returns < target_return]
     downside_deviation = np.sqrt(np.mean(downside_returns**2))
-    return np.sqrt(252) * excess_returns.mean() / downside_deviation
+    return np.sqrt(252) * excess_returns.mean() / downside_deviation if downside_deviation != 0 else np.nan
 
 # Configuración de la página
 st.set_page_config(page_title="Analizador de Portafolio", layout="wide")
@@ -123,8 +125,8 @@ else:
         
         for ventana in ventanas:
             rendimientos_ventanas[f'{ventana}d'] = pd.Series({
-                'Portafolio': calcular_rendimiento_ventana(portfolio_returns, min(ventana, len(portfolio_returns))),
-                **{symbol: calcular_rendimiento_ventana(returns[symbol], min(ventana, len(returns[symbol]))) for symbol in simbolos + [benchmark]}
+                'Portafolio': calcular_rendimiento_ventana(portfolio_returns, ventana),
+                **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana) for symbol in simbolos + [benchmark]}
             })
         
         st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
