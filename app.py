@@ -6,10 +6,10 @@ import plotly.express as px
 import numpy as np
 from datetime import datetime, timedelta
 
-# Funciones auxiliares
+# Funciones auxiliares (sin cambios)
 def obtener_datos_acciones(simbolos, start_date, end_date):
     data = yf.download(simbolos, start=start_date, end=end_date)['Close']
-    return data.ffill().dropna()  # Forward fill y eliminar días sin datos para todos los activos
+    return data.ffill().dropna()
 
 def calcular_metricas(df):
     returns = df.pct_change().dropna()
@@ -51,12 +51,13 @@ pesos_input = st.sidebar.text_input("Ingrese los pesos correspondientes separado
 simbolos = [s.strip() for s in simbolos_input.split(',')]
 pesos = [float(w.strip()) for w in pesos_input.split(',')]
 
-# Selección del benchmark
+# Selección del benchmark (actualizado para incluir ACWI)
 benchmark_options = {
     "S&P 500": "^GSPC",
     "Nasdaq": "^IXIC",
     "Dow Jones": "^DJI",
-    "Russell 2000": "^RUT"
+    "Russell 2000": "^RUT",
+    "ACWI": "ACWI"  # Añadido ACWI
 }
 selected_benchmark = st.sidebar.selectbox("Seleccione el benchmark:", list(benchmark_options.keys()))
 benchmark = benchmark_options[selected_benchmark]
@@ -138,10 +139,10 @@ else:
         for ventana in ventanas:
             rendimientos_ventanas[f'{ventana}d'] = pd.Series({
                 'Portafolio': calcular_rendimiento_ventana(portfolio_returns, ventana),
-                **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana) for symbol in simbolos + [benchmark]}
+                **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana) for symbol in simbolos},
+                selected_benchmark: calcular_rendimiento_ventana(returns[benchmark], ventana)  # Añadido el benchmark aquí
             })
         
-        rendimientos_ventanas = rendimientos_ventanas.rename(index={benchmark: selected_benchmark})
         st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
 
         # Gráfico de comparación de rendimientos
