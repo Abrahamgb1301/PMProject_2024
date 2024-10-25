@@ -52,6 +52,63 @@ def calcular_var_cvar_ventana(returns, window):
     window_returns = returns.iloc[-window:]
     return calcular_var_cvar(window_returns)
 
+def crear_histograma_distribucion(returns, var_95, cvar_95, title):
+    # Crear el histograma base
+    fig = go.Figure()
+    
+    # Calcular los bins para el histograma
+    counts, bins = np.histogram(returns, bins=50)
+    
+    # Separar los bins en dos grupos: antes y después del VaR
+    mask_before_var = bins[:-1] <= var_95
+    
+    # Añadir histograma para valores antes del VaR (rojo)
+    fig.add_trace(go.Bar(
+        x=bins[:-1][mask_before_var],
+        y=counts[mask_before_var],
+        width=np.diff(bins)[mask_before_var],
+        name='Retornos < VaR',
+        marker_color='rgba(255, 65, 54, 0.6)'
+    ))
+    
+    # Añadir histograma para valores después del VaR (azul)
+    fig.add_trace(go.Bar(
+        x=bins[:-1][~mask_before_var],
+        y=counts[~mask_before_var],
+        width=np.diff(bins)[~mask_before_var],
+        name='Retornos > VaR',
+        marker_color='rgba(31, 119, 180, 0.6)'
+    ))
+    
+    # Añadir líneas verticales para VaR y CVaR
+    fig.add_trace(go.Scatter(
+        x=[var_95, var_95],
+        y=[0, max(counts)],
+        mode='lines',
+        name='VaR 95%',
+        line=dict(color='green', width=2, dash='dash')
+    ))
+    
+    fig.add_trace(go.Scatter(
+        x=[cvar_95, cvar_95],
+        y=[0, max(counts)],
+        mode='lines',
+        name='CVaR 95%',
+        line=dict(color='purple', width=2, dash='dot')
+    ))
+    
+    # Actualizar el diseño
+    fig.update_layout(
+        title=title,
+        xaxis_title='Retornos',
+        yaxis_title='Frecuencia',
+        showlegend=True,
+        barmode='overlay',
+        bargap=0
+    )
+    
+    return fig
+
 # Configuración de la página
 st.set_page_config(page_title="Analizador de Portafolio", layout="wide")
 st.sidebar.title("Analizador de Portafolio de Inversión")
@@ -130,6 +187,33 @@ else:
         # Beta del activo vs benchmark
         beta_asset = calcular_beta(returns[selected_asset], returns[benchmark])
         st.metric(f"Beta vs {selected_benchmark}", f"{beta_asset:.2f}")
+        
+        st.subheader(f"Distribución de Retornos: {selected_asset} vs {selected_benchmark}")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Histograma para el activo seleccionado
+            var_asset, cvar_asset = calcular_var_cvar(returns[selected_asset])
+            fig_hist_asset = crear_histograma_distribucion(
+                returns[selected_asset],
+                var_asset,
+                cvar_asset,
+                f'Distribución de Retornos - {selected_asset}'
+            )
+            st.plotly_chart(fig_hist_asset, use_container_width=True)
+            
+        with col2:
+            # Histograma para el benchmark
+            var_bench, cvar_bench = calcular_var_cvar(returns[benchmark])
+            fig_hist_bench = crear_histograma_distribucion(
+                returns[benchmark],
+                var_bench,
+                cvar_bench,
+                f'Distribución de Retornos - {selected_benchmark}'
+            )
+            st.plotly_chart(fig_hist_bench, use_container_width=True)
+
 
     with tab2:
         st.header("Análisis del Portafolio")
@@ -156,6 +240,32 @@ else:
         # Beta del portafolio vs benchmark
         beta_portfolio = calcular_beta(portfolio_returns, returns[benchmark])
         st.metric(f"Beta del Portafolio vs {selected_benchmark}", f"{beta_portfolio:.2f}")
+
+        st.subheader("Distribución de Retornos del Portafolio vs Benchmark")
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            # Histograma para el portafolio
+            var_port, cvar_port = calcular_var_cvar(portfolio_returns)
+            fig_hist_port = crear_histograma_distribucion(
+                portfolio_returns,
+                var_port,
+                cvar_port,
+                'Distribución de Retornos - Portafolio'
+            )
+            st.plotly_chart(fig_hist_port, use_container_width=True)
+            
+        with col2:
+            # Histograma para el benchmark
+            var_bench, cvar_bench = calcular_var_cvar(returns[benchmark])
+            fig_hist_bench = crear_histograma_distribucion(
+                returns[benchmark],
+                var_bench,
+                cvar_bench,
+                f'Distribución de Retornos - {selected_benchmark}'
+            )
+            st.plotly_chart(fig_hist_bench, use_container_width=True)
 
         # Rendimientos y métricas de riesgo en diferentes ventanas de tiempo
         st.subheader("Rendimientos y Métricas de Riesgo en Diferentes Ventanas de Tiempo")
