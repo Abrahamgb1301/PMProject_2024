@@ -182,7 +182,7 @@ else:
         fig_asset.add_trace(go.Scatter(x=normalized_prices.index, y=normalized_prices[selected_asset], name=selected_asset))
         fig_asset.add_trace(go.Scatter(x=normalized_prices.index, y=normalized_prices[benchmark], name=selected_benchmark))
         fig_asset.update_layout(title=f'Precio Normalizado: {selected_asset} vs {selected_benchmark} (Base 100)', xaxis_title='Fecha', yaxis_title='Precio Normalizado')
-        st.plotly_chart(fig_asset)
+        st.plotly_chart(fig_asset, use_container_width=True, key="price_normalized")
         
         # Beta del activo vs benchmark
         beta_asset = calcular_beta(returns[selected_asset], returns[benchmark])
@@ -201,7 +201,7 @@ else:
                 cvar_asset,
                 f'Distribución de Retornos - {selected_asset}'
             )
-            st.plotly_chart(fig_hist_asset, use_container_width=True)
+            st.plotly_chart(fig_hist_asset, use_container_width=True, key="hist_asset")
             
         with col2:
             # Histograma para el benchmark
@@ -212,7 +212,7 @@ else:
                 cvar_bench,
                 f'Distribución de Retornos - {selected_benchmark}'
             )
-            st.plotly_chart(fig_hist_bench, use_container_width=True)
+            st.plotly_chart(fig_hist_bench, use_container_width=True, key="hist_bench_1")
 
 
     with tab2:
@@ -235,7 +235,8 @@ else:
         fig_cumulative.add_trace(go.Scatter(x=portfolio_cumulative_returns.index, y=portfolio_cumulative_returns, name='Portafolio'))
         fig_cumulative.add_trace(go.Scatter(x=cumulative_returns.index, y=cumulative_returns[benchmark], name=selected_benchmark))
         fig_cumulative.update_layout(title=f'Rendimientos Acumulados: Portafolio vs {selected_benchmark}', xaxis_title='Fecha', yaxis_title='Rendimiento Acumulado')
-        st.plotly_chart(fig_cumulative)
+        st.plotly_chart(fig_cumulative, use_container_width=True, key="cumulative_returns")
+
 
         # Beta del portafolio vs benchmark
         beta_portfolio = calcular_beta(portfolio_returns, returns[benchmark])
@@ -254,7 +255,7 @@ else:
                 cvar_port,
                 'Distribución de Retornos - Portafolio'
             )
-            st.plotly_chart(fig_hist_port, use_container_width=True)
+            st.plotly_chart(fig_hist_port, use_container_width=True, key="hist_port")
             
         with col2:
             # Histograma para el benchmark
@@ -265,7 +266,7 @@ else:
                 cvar_bench,
                 f'Distribución de Retornos - {selected_benchmark}'
             )
-            st.plotly_chart(fig_hist_bench, use_container_width=True)
+            st.plotly_chart(fig_hist_bench, use_container_width=True, key="hist_bench_2")
 
         # Rendimientos y métricas de riesgo en diferentes ventanas de tiempo
         st.subheader("Rendimientos y Métricas de Riesgo en Diferentes Ventanas de Tiempo")
@@ -322,4 +323,5 @@ else:
         for index, row in rendimientos_ventanas.iterrows():
             fig_comparison.add_trace(go.Bar(x=ventanas, y=row, name=index))
         fig_comparison.update_layout(title='Comparación de Rendimientos', xaxis_title='Días', yaxis_title='Rendimiento', barmode='group')
-        st.plotly_chart(fig_comparison)
+        # Gráfico de comparación de rendimientos
+        st.plotly_chart(fig_comparison, use_container_width=True, key="returns_comparison")
