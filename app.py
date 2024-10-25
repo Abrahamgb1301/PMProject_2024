@@ -6,7 +6,7 @@ import plotly.express as px
 import numpy as np
 from datetime import datetime, timedelta
 
-# Funciones auxiliares (sin cambios)
+# Funciones auxiliares
 def obtener_datos_acciones(simbolos, start_date, end_date):
     data = yf.download(simbolos, start=start_date, end=end_date)['Close']
     return data.ffill().dropna()
@@ -40,6 +40,18 @@ def calcular_sortino_ratio(returns, risk_free_rate=0.02, target_return=0):
     downside_deviation = np.sqrt(np.mean(downside_returns**2))
     return np.sqrt(252) * excess_returns.mean() / downside_deviation if downside_deviation != 0 else np.nan
 
+# Nuevas funciones para VaR y CVaR
+def calcular_var_cvar(returns, confidence=0.95):
+    VaR = returns.quantile(1 - confidence)
+    CVaR = returns[returns <= VaR].mean()
+    return VaR, CVaR
+
+def calcular_var_cvar_ventana(returns, window):
+    if len(returns) < window:
+        return np.nan, np.nan
+    window_returns = returns.iloc[-window:]
+    return calcular_var_cvar(window_returns)
+
 # Configuración de la página
 st.set_page_config(page_title="Analizador de Portafolio", layout="wide")
 st.sidebar.title("Analizador de Portafolio de Inversión")
@@ -51,13 +63,13 @@ pesos_input = st.sidebar.text_input("Ingrese los pesos correspondientes separado
 simbolos = [s.strip() for s in simbolos_input.split(',')]
 pesos = [float(w.strip()) for w in pesos_input.split(',')]
 
-# Selección del benchmark (actualizado para incluir ACWI)
+# Selección del benchmark
 benchmark_options = {
     "S&P 500": "^GSPC",
     "Nasdaq": "^IXIC",
     "Dow Jones": "^DJI",
     "Russell 2000": "^RUT",
-    "ACWI": "ACWI"  # Añadido ACWI
+    "ACWI": "ACWI"
 }
 selected_benchmark = st.sidebar.selectbox("Seleccione el benchmark:", list(benchmark_options.keys()))
 benchmark = benchmark_options[selected_benchmark]
@@ -96,10 +108,17 @@ else:
         
         selected_asset = st.selectbox("Seleccione un activo para analizar:", simbolos)
         
+        # Calcular VaR y CVaR para el activo seleccionado
+        var_95, cvar_95 = calcular_var_cvar(returns[selected_asset])
+        
         col1, col2, col3 = st.columns(3)
         col1.metric("Rendimiento Total", f"{cumulative_returns[selected_asset].iloc[-1]:.2%}")
         col2.metric("Sharpe Ratio", f"{calcular_sharpe_ratio(returns[selected_asset]):.2f}")
         col3.metric("Sortino Ratio", f"{calcular_sortino_ratio(returns[selected_asset]):.2f}")
+        
+        col4, col5 = st.columns(2)
+        col4.metric("VaR 95%", f"{var_95:.2%}")
+        col5.metric("CVaR 95%", f"{cvar_95:.2%}")
         
         # Gráfico de precio normalizado del activo seleccionado vs benchmark
         fig_asset = go.Figure()
@@ -115,10 +134,17 @@ else:
     with tab2:
         st.header("Análisis del Portafolio")
         
+        # Calcular VaR y CVaR para el portafolio
+        portfolio_var_95, portfolio_cvar_95 = calcular_var_cvar(portfolio_returns)
+        
         col1, col2, col3 = st.columns(3)
         col1.metric("Rendimiento Total del Portafolio", f"{portfolio_cumulative_returns.iloc[-1]:.2%}")
         col2.metric("Sharpe Ratio del Portafolio", f"{calcular_sharpe_ratio(portfolio_returns):.2f}")
         col3.metric("Sortino Ratio del Portafolio", f"{calcular_sortino_ratio(portfolio_returns):.2f}")
+
+        col4, col5 = st.columns(2)
+        col4.metric("VaR 95% del Portafolio", f"{portfolio_var_95:.2%}")
+        col5.metric("CVaR 95% del Portafolio", f"{portfolio_cvar_95:.2%}")
 
         # Gráfico de rendimientos acumulados del portafolio vs benchmark
         fig_cumulative = go.Figure()
@@ -131,19 +157,55 @@ else:
         beta_portfolio = calcular_beta(portfolio_returns, returns[benchmark])
         st.metric(f"Beta del Portafolio vs {selected_benchmark}", f"{beta_portfolio:.2f}")
 
-        # Rendimientos en diferentes ventanas de tiempo
-        st.subheader("Rendimientos en Diferentes Ventanas de Tiempo")
+        # Rendimientos y métricas de riesgo en diferentes ventanas de tiempo
+        st.subheader("Rendimientos y Métricas de Riesgo en Diferentes Ventanas de Tiempo")
         ventanas = [1, 7, 30, 90, 180, 252]
+        
+        # Crear DataFrames separados para cada métrica
         rendimientos_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [selected_benchmark])
+        var_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [selected_benchmark])
+        cvar_ventanas = pd.DataFrame(index=['Portafolio'] + simbolos + [selected_benchmark])
         
         for ventana in ventanas:
+            # Rendimientos
             rendimientos_ventanas[f'{ventana}d'] = pd.Series({
                 'Portafolio': calcular_rendimiento_ventana(portfolio_returns, ventana),
                 **{symbol: calcular_rendimiento_ventana(returns[symbol], ventana) for symbol in simbolos},
-                selected_benchmark: calcular_rendimiento_ventana(returns[benchmark], ventana)  # Añadido el benchmark aquí
+                selected_benchmark: calcular_rendimiento_ventana(returns[benchmark], ventana)
             })
+            
+            # VaR y CVaR
+            var_temp = {}
+            cvar_temp = {}
+            
+            # Para el portafolio
+            port_var, port_cvar = calcular_var_cvar_ventana(portfolio_returns, ventana)
+            var_temp['Portafolio'] = port_var
+            cvar_temp['Portafolio'] = port_cvar
+            
+            # Para cada símbolo
+            for symbol in simbolos:
+                var, cvar = calcular_var_cvar_ventana(returns[symbol], ventana)
+                var_temp[symbol] = var
+                cvar_temp[symbol] = cvar
+            
+            # Para el benchmark
+            bench_var, bench_cvar = calcular_var_cvar_ventana(returns[benchmark], ventana)
+            var_temp[selected_benchmark] = bench_var
+            cvar_temp[selected_benchmark] = bench_cvar
+            
+            var_ventanas[f'{ventana}d'] = pd.Series(var_temp)
+            cvar_ventanas[f'{ventana}d'] = pd.Series(cvar_temp)
         
+        # Mostrar las tablas
+        st.subheader("Rendimientos por Ventana")
         st.dataframe(rendimientos_ventanas.style.format("{:.2%}"))
+        
+        st.subheader("VaR 95% por Ventana")
+        st.dataframe(var_ventanas.style.format("{:.2%}"))
+        
+        st.subheader("CVaR 95% por Ventana")
+        st.dataframe(cvar_ventanas.style.format("{:.2%}"))
 
         # Gráfico de comparación de rendimientos
         fig_comparison = go.Figure()
